@@ -112,7 +112,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
 
-  // 最終遷移先 = shop の order status page (= legacy のため customer login が
-  // 必要な場合あり、 0.2.0 で order status URL signature 等を検討)
-  return redirect(`https://${shop}/account/orders/${orderNumericId}`);
+  // 最終遷移先 = Shopify Order の statusPageUrl (= signed token 含む、 customer login 不要)。
+  // codex 査読 r80: `/account/orders/<id>` は customer account login を要求する path のため
+  // WP plugin の `get_checkout_order_received_url()` 相当として Admin GraphQL の
+  // `Order.statusPageUrl` を採用。 不在 (= permission / network error) なら shop top に fallback。
+  let statusUrl: string | null = null;
+  try {
+    const { admin } = await unauthenticated.admin(shop);
+    const res = await admin.graphql(
+      `#graphql
+      query StatusPageUrl($id: ID!) {
+        order(id: $id) {
+          statusPageUrl
+        }
+      }`,
+      { variables: { id: mapping.shopifyOrderId } },
+    );
+    const json = (await res.json()) as { data?: { order?: { statusPageUrl?: string } } };
+    statusUrl = json.data?.order?.statusPageUrl ?? null;
+  } catch (e) {
+    console.warn("[uniple] statusPageUrl lookup failed:", (e as Error).message);
+  }
+
+  return redirect(statusUrl ?? `https://${shop}/`);
 };

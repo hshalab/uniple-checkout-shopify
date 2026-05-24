@@ -2,7 +2,15 @@
 # Path A: Manual Payment offline gateway + Thank you / Order status UI extension で
 # pay button 表示。 検討した Path B (= Payments App Extension native offsite) は
 # Shopify Plus / Approved Partner 要件 + 審査厳格のため MVP 段階で見送り (= codex 査読 r70)。
-client_id = ""
+client_id = "cdf36943d96d6284bdfa212ee9801b45"
+name = "uniple checkout"
+handle = "uniple-checkout"
+application_url = "https://invited-width-entrepreneurs-breath.trycloudflare.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "uniple-dev.myshopify.com"
 
 [access_scopes]
 # Manual Payment + orderMarkAsPaid に必要な最小 scope。
@@ -10,6 +18,13 @@ client_id = ""
 # - write_orders: orderMarkAsPaid mutation (= uniple webhook completed 受信時)
 # write_checkouts は deprecated のため不採用、 read_products は first smoke 後に判断。
 scopes = "read_orders,write_orders"
+
+[auth]
+redirect_urls = [
+  "https://invited-width-entrepreneurs-breath.trycloudflare.com/auth/callback",
+  "https://invited-width-entrepreneurs-breath.trycloudflare.com/auth/shopify/callback",
+  "https://invited-width-entrepreneurs-breath.trycloudflare.com/api/auth/callback"
+]
 
 [webhooks]
 api_version = "2025-10"
@@ -23,12 +38,14 @@ api_version = "2025-10"
   topics = ["app/scopes_update"]
   uri = "/webhooks/app/scopes_update"
 
-  # Shopify shop → app: 新規 order 作成検知で uniple session 発行
+  # Protected customer data (= 2026-05-14 dev access 設定済、 D user Partner Dashboard で
+  # 「アプリの機能」 + 名前 / メール fields 開発用 access 取得済)。
+  # production review は app store submission 前に別途必要。
+  # 参照: https://shopify.dev/docs/apps/launch/protected-customer-data
   [[webhooks.subscriptions]]
   topics = ["orders/create"]
   uri = "/webhooks/orders/create"
 
-  # 補完: order キャンセル / refund で uniple 側 mapping を invalidate
   [[webhooks.subscriptions]]
   topics = ["orders/cancelled"]
   uri = "/webhooks/orders/cancelled"
@@ -37,9 +54,18 @@ api_version = "2025-10"
   # [[webhooks.subscriptions]]
   # uri = "/webhooks/customers/data_request"
   # compliance_topics = ["customers/data_request"]
-  # [[webhooks.subscriptions]]
-  # uri = "/webhooks/customers/redact"
-  # compliance_topics = ["customers/redact"]
-  # [[webhooks.subscriptions]]
-  # uri = "/webhooks/shop/redact"
-  # compliance_topics = ["shop/redact"]
+
+[pos]
+embedded = false
+
+# Thank you / Order status UI extension が order metafield に直接 access
+# できない (= appMetafields.target.type に 'order' 無し、 codex r82 査読確定)
+# 制約を回避するため App Proxy を経由。
+# Block の fetch('/apps/uniple-pay-link?orderId=<gid>') が
+# https://uniple-dev.myshopify.com/apps/uniple-pay-link を経由して
+# {app}/apps/uniple-pay-link?... に proxy される。
+# Shopify が HMAC `signature` query param を付加、 plugin endpoint で検証。
+[app_proxy]
+url = "https://invited-width-entrepreneurs-breath.trycloudflare.com/apps/uniple-pay-link"
+subpath = "uniple-pay-link"
+prefix = "apps"

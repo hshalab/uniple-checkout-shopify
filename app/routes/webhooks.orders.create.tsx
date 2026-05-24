@@ -102,18 +102,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       webhookUrl,
     });
 
-    await db.orderMapping.create({
-      data: {
-        shop,
-        shopifyOrderId: orderGid,
-        shopifyOrderNumericId: numericId,
-        unipleSessionId: session.sessionId,
-        unipleEnv: settings.mode,
-        amountJpyc,
-        currency: "JPY",
-        status: "pending",
-      },
-    });
+    try {
+      await db.orderMapping.create({
+        data: {
+          shop,
+          shopifyOrderId: orderGid,
+          shopifyOrderNumericId: numericId,
+          unipleSessionId: session.sessionId,
+          unipleEnv: settings.mode,
+          amountJpyc,
+          currency: "JPY",
+          status: "pending",
+        },
+      });
+    } catch (e) {
+      const err = e as { code?: string; message?: string };
+      if (err.code === "P2002") {
+        return new Response("duplicate-retry-skip", { status: 200 });
+      }
+      throw e;
+    }
 
     // Shopify order に uniple metafield 書込 (= UI extension の pay button 依存先)
     // 失敗しても mapping は作成済 (= 後段で metafield を補完できる)、 log warning で 200 return

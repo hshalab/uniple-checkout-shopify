@@ -1,55 +1,96 @@
 /**
- * Customer account / Order status page block。
+ * Customer Account / Order status page block (= customer-account.order-status.block.render)。
  *
- * 購入者が後で order status / customer account から戻ってきたときも
- * uniple pay link を再表示できる (= Thank you page を閉じた user の retry path)。
+ * codex r82 ADJUST (= 2026-05-15 web search 査読): order が常に available なので
+ * lazy-create endpoint が確実に動く。 Thank you Block の timing 競合を避け、
+ * **本 Block を primary entry** にする。
+ *
+ * 動作:
+ *   1. shopify.order.value.id から GID 取得
+ *   2. /apps/uniple-pay-link?orderId=<gid>&json=1 を fetch
+ *   3. status=pending なら button "uniple checkout (JPYC) で支払う" を表示
+ *   4. status=paid なら success banner
+ *
+ * 実装 = @shopify/ui-extensions 2026-04 preact base + Polaris web components。
  */
 
-import {
-  reactExtension,
-  useApi,
-  BlockStack,
-  Banner,
-  Button,
-  Text,
-} from "@shopify/ui-extensions-react/customer-account";
+import "@shopify/ui-extensions/preact";
+import { render } from "preact";
+import { useEffect, useState } from "preact/hooks";
 
-interface AppMetafieldEntry {
-  metafield: { namespace: string; key: string; value: unknown };
+declare const shopify: {
+  order?: { value?: { id?: string } } | { id?: string };
+  orderConfirmation?: { value?: { order?: { id?: string } } };
+  shop?: { myshopifyDomain?: string } | { value?: { myshopifyDomain?: string } };
+};
+
+interface PayLinkData {
+  status?: string;
+  checkoutUrl?: string;
+  error?: string;
 }
 
-export default reactExtension("customer-account.order-status.block.render", () => (
-  <UnipleOrderStatusBlock />
-));
+function readOrderId(): string {
+  const o = shopify.order as { value?: { id?: string }; id?: string } | undefined;
+  if (!o) return shopify.orderConfirmation?.value?.order?.id ?? "";
+  if (typeof o.id === "string") return o.id;
+  if (o.value && typeof o.value.id === "string") return o.value.id;
+  return "";
+}
 
-function UnipleOrderStatusBlock() {
-  const api = useApi() as unknown as {
-    appMetafields: { current: AppMetafieldEntry[] };
-  };
-  const entries = api.appMetafields?.current ?? [];
-  const checkoutUrl = entries.find(
-    (m) => m.metafield.namespace === "uniple" && m.metafield.key === "checkout_url",
-  )?.metafield.value as string | undefined;
-  const status = entries.find(
-    (m) => m.metafield.namespace === "uniple" && m.metafield.key === "status",
-  )?.metafield.value as string | undefined;
+function readShopDomain(): string {
+  const s = shopify.shop as { myshopifyDomain?: string; value?: { myshopifyDomain?: string } } | undefined;
+  if (!s) return "";
+  if (typeof s.myshopifyDomain === "string") return s.myshopifyDomain;
+  if (s.value && typeof s.value.myshopifyDomain === "string") return s.value.myshopifyDomain;
+  return "";
+}
 
-  if (!checkoutUrl) return null;
-  if (status === "paid") {
+function App() {
+  const [data, setData] = useState<PayLinkData | null>(null);
+
+  useEffect(() => {
+    const orderId = readOrderId();
+    const shopDomain = readShopDomain();
+    if (!orderId || !shopDomain) {
+      setData({ error: "missing-context" });
+      return;
+    }
+    const url = `https://${shopDomain}/apps/uniple-pay-link?orderId=${encodeURIComponent(orderId)}&json=1`;
+    fetch(url)
+      .then((r) => r.json() as Promise<PayLinkData>)
+      .then(setData)
+      .catch((e: Error) => setData({ error: e.message }));
+  }, []);
+
+  if (!data) return null;
+
+  if (data.status === "paid") {
     return (
-      <Banner status="success" title="Paid">
-        <Text>uniple checkout completed for this order.</Text>
-      </Banner>
+      <s-banner tone="success" heading="お支払いを確認しました">
+        <s-text>uniple checkout でのお支払いが完了しています。</s-text>
+      </s-banner>
     );
   }
+
+  if (!data.checkoutUrl) {
+    return null;
+  }
+
   return (
-    <BlockStack spacing="base">
-      <Banner status="info" title="Payment pending">
-        <Text>Click below to complete payment via uniple.</Text>
-      </Banner>
-      <Button kind="primary" to={checkoutUrl}>
-        Pay with uniple (JPYC)
-      </Button>
-    </BlockStack>
+    <s-stack direction="block" gap="large-200">
+      <s-banner tone="info" heading="お支払いがまだ完了していません">
+        <s-text>
+          下のボタンから uniple のチェックアウトに進み、 JPYC でお支払いください。
+        </s-text>
+      </s-banner>
+      <s-button variant="primary" href={data.checkoutUrl} inlineSize="fill">
+        uniple checkout (JPYC) で支払う
+      </s-button>
+    </s-stack>
   );
+}
+
+export default function () {
+  render(<App />, document.body);
 }
