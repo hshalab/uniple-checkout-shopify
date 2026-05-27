@@ -56,7 +56,7 @@ model OrderMapping {
   unipleEnv             String   @default("live")
   amountJpyc            Int
   currency              String   @default("JPY")
-  // pending | paid | paid_pending | failed | cancelled
+  // pending | paid | paid_pending | failed | expired | cancelled
   status                String   @default("pending")
   txHash                String?
   payer                 String?

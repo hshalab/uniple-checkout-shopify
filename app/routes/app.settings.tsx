@@ -219,7 +219,7 @@ export default function Settings() {
                 Webhook secret: {settings.hasWebhookSecret ? "set" : "not set"}
               </Text>
               <Text as="p" tone="subdued">
-                Route flow: Manual Payment + Thank you pay link (= codex Path A).
+                Route flow: Manual Payment + order confirmation email pay link (= Path A').
               </Text>
             </BlockStack>
           </Card>

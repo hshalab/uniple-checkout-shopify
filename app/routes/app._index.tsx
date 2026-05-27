@@ -1,246 +1,159 @@
-import { useEffect } from "react";
-import type {
-  ActionFunctionArgs,
-  HeadersFunction,
-  LoaderFunctionArgs,
-} from "react-router";
-import { useFetcher } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
-import { authenticate } from "../shopify.server";
+import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
+import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 
+import db from "../db.server";
+import { authenticate } from "../shopify.server";
+
+const SETUP_DOC_PATH = "/docs/merchant-integration-spec";
+const FAQ_DOC_PATH = "/docs/merchant-integration-spec#9-troubleshooting-faq";
+const MERCHANT_APPLICATION_URL = "https://forms.gle/b8kwVZeynA1ffV8j6";
+const SUPPORT_EMAIL = "support@uniple.io";
+const APP_SUMMARY = "uniple checkout — JPYC stablecoin payment integration.";
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
-
-  return null;
-};
-
-export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
-  const color = ["Red", "Orange", "Yellow", "Green"][
-    Math.floor(Math.random() * 4)
-  ];
-  const response = await admin.graphql(
-    `#graphql
-      mutation populateProduct($product: ProductCreateInput!) {
-        productCreate(product: $product) {
-          product {
-            id
-            title
-            handle
-            status
-            variants(first: 10) {
-              edges {
-                node {
-                  id
-                  price
-                  barcode
-                  createdAt
-                }
-              }
-            }
-          }
-        }
-      }`,
-    {
-      variables: {
-        product: {
-          title: `${color} Snowboard`,
-        },
-      },
+  const { session } = await authenticate.admin(request);
+  const settings = await db.shopSettings.findUnique({
+    where: { shop: session.shop },
+    select: {
+      apiBaseUrl: true,
+      apiKey: true,
+      webhookSecret: true,
+      mode: true,
     },
-  );
-  const responseJson = await response.json();
+  });
 
-  const product = responseJson.data!.productCreate!.product!;
-  const variantId = product.variants.edges[0]!.node!.id!;
-
-  const variantResponse = await admin.graphql(
-    `#graphql
-    mutation shopifyReactRouterTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        productVariants {
-          id
-          price
-          barcode
-          createdAt
-        }
-      }
-    }`,
-    {
-      variables: {
-        productId: product.id,
-        variants: [{ id: variantId, price: "100.00" }],
-      },
-    },
-  );
-
-  const variantResponseJson = await variantResponse.json();
+  const hasApiBaseUrl = Boolean(settings?.apiBaseUrl?.trim());
+  const hasApiKey = Boolean(settings?.apiKey?.trim());
+  const hasWebhookSecret = Boolean(settings?.webhookSecret?.trim());
+  const ready = hasApiBaseUrl && hasApiKey && hasWebhookSecret;
 
   return {
-    product: responseJson!.data!.productCreate!.product,
-    variant:
-      variantResponseJson!.data!.productVariantsBulkUpdate!.productVariants,
+    shop: session.shop,
+    ready,
+    mode: settings?.mode ?? "live",
+    checks: {
+      apiBaseUrl: hasApiBaseUrl,
+      apiKey: hasApiKey,
+      webhookSecret: hasWebhookSecret,
+    },
   };
 };
 
 export default function Index() {
-  const fetcher = useFetcher<typeof action>();
-
-  const shopify = useAppBridge();
-  const isLoading =
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
-
-  useEffect(() => {
-    if (fetcher.data?.product?.id) {
-      shopify.toast.show("Product created");
-    }
-  }, [fetcher.data?.product?.id, shopify]);
-
-  const generateProduct = () => fetcher.submit({}, { method: "POST" });
+  const { shop, ready, mode, checks } = useLoaderData<typeof loader>();
 
   return (
-    <s-page heading="Shopify app template">
-      <s-button slot="primary-action" onClick={generateProduct}>
-        Generate a product
-      </s-button>
-
-      <s-section heading="Congrats on creating a new Shopify app 🎉">
-        <s-paragraph>
-          This embedded app template uses{" "}
-          <s-link
-            href="https://shopify.dev/docs/apps/tools/app-bridge"
-            target="_blank"
-          >
-            App Bridge
-          </s-link>{" "}
-          interface examples like an{" "}
-          <s-link href="/app/additional">additional page in the app nav</s-link>
-          , as well as an{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            Admin GraphQL
-          </s-link>{" "}
-          mutation demo, to provide a starting point for app development.
-        </s-paragraph>
-      </s-section>
-      <s-section heading="Get started with products">
-        <s-paragraph>
-          Generate a product with GraphQL and get the JSON output for that
-          product. Learn more about the{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-            target="_blank"
-          >
-            productCreate
-          </s-link>{" "}
-          mutation in our API references.
-        </s-paragraph>
-        <s-stack direction="inline" gap="base">
-          <s-button
-            onClick={generateProduct}
-            {...(isLoading ? { loading: true } : {})}
-          >
-            Generate a product
-          </s-button>
-          {fetcher.data?.product && (
-            <s-button
-              onClick={() => {
-                shopify.intents.invoke?.("edit:shopify/Product", {
-                  value: fetcher.data?.product?.id,
-                });
-              }}
-              target="_blank"
-              variant="tertiary"
-            >
-              Edit product
-            </s-button>
-          )}
-        </s-stack>
-        {fetcher.data?.product && (
-          <s-section heading="productCreate mutation">
-            <s-stack direction="block" gap="base">
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.product, null, 2)}</code>
-                </pre>
-              </s-box>
-
-              <s-heading>productVariantsBulkUpdate mutation</s-heading>
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.variant, null, 2)}</code>
-                </pre>
-              </s-box>
+    <s-page heading="uniple checkout">
+      <s-section heading="Welcome">
+        <s-stack direction="block" gap="base">
+          <s-stack direction="inline" gap="base" alignItems="center">
+            <s-icon type="payment" tone="info" />
+            <s-stack direction="block" gap="small">
+              <s-heading>uniple checkout</s-heading>
+              <s-paragraph>{APP_SUMMARY}</s-paragraph>
             </s-stack>
-          </s-section>
-        )}
+          </s-stack>
+
+          <s-box
+            padding="base"
+            borderWidth="base"
+            borderRadius="base"
+            background="subdued"
+          >
+            <s-stack direction="block" gap="small">
+              <s-stack direction="inline" gap="small" alignItems="center">
+                <s-text type="strong">Setup status</s-text>
+                <s-badge
+                  tone={ready ? "success" : "warning"}
+                  icon={ready ? "check-circle" : "alert-circle"}
+                >
+                  {ready ? "Ready" : "Setup required"}
+                </s-badge>
+              </s-stack>
+              <s-paragraph color="subdued">
+                Shop: {shop} / Mode: {mode}
+              </s-paragraph>
+              <s-paragraph color="subdued">
+                Required settings: API base URL, API key, and webhook secret.
+              </s-paragraph>
+            </s-stack>
+          </s-box>
+
+          <s-stack direction="inline" gap="base">
+            <s-button variant="primary" href={SETUP_DOC_PATH} target="_blank">
+              Setup guide
+            </s-button>
+            <s-button href="/app/settings">Open settings</s-button>
+            <s-button href={MERCHANT_APPLICATION_URL} target="_blank">
+              Apply for uniple merchant account
+            </s-button>
+          </s-stack>
+        </s-stack>
       </s-section>
 
-      <s-section slot="aside" heading="App template specs">
-        <s-paragraph>
-          <s-text>Framework: </s-text>
-          <s-link href="https://reactrouter.com/" target="_blank">
-            React Router
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Interface: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/app-home/using-polaris-components"
-            target="_blank"
-          >
-            Polaris web components
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>API: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            GraphQL
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Database: </s-text>
-          <s-link href="https://www.prisma.io/" target="_blank">
-            Prisma
-          </s-link>
-        </s-paragraph>
-      </s-section>
-
-      <s-section slot="aside" heading="Next steps">
+      <s-section heading="Next steps">
         <s-unordered-list>
           <s-list-item>
-            Build an{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/getting-started/build-app-example"
-              target="_blank"
+            Apply for a uniple merchant account and receive API credentials.
+          </s-list-item>
+          <s-list-item>
+            Save the API base URL, API key, webhook secret, and mode in{" "}
+            <s-link href="/app/settings">Settings</s-link>.
+          </s-list-item>
+          <s-list-item>
+            Add the manual payment method and paste the order confirmation email
+            Liquid snippet from the{" "}
+            <s-link href={SETUP_DOC_PATH} target="_blank">
+              merchant integration spec
+            </s-link>
+            .
+          </s-list-item>
+        </s-unordered-list>
+      </s-section>
+
+      <s-section slot="aside" heading="Configuration">
+        <s-stack direction="block" gap="small">
+          <s-stack direction="inline" gap="small" alignItems="center">
+            <s-badge
+              tone={checks.apiBaseUrl ? "success" : "warning"}
+              icon={checks.apiBaseUrl ? "check-circle" : "alert-circle"}
             >
-              example app
+              API base URL
+            </s-badge>
+          </s-stack>
+          <s-stack direction="inline" gap="small" alignItems="center">
+            <s-badge
+              tone={checks.apiKey ? "success" : "warning"}
+              icon={checks.apiKey ? "check-circle" : "alert-circle"}
+            >
+              API key
+            </s-badge>
+          </s-stack>
+          <s-stack direction="inline" gap="small" alignItems="center">
+            <s-badge
+              tone={checks.webhookSecret ? "success" : "warning"}
+              icon={checks.webhookSecret ? "check-circle" : "alert-circle"}
+            >
+              Webhook secret
+            </s-badge>
+          </s-stack>
+        </s-stack>
+      </s-section>
+
+      <s-section slot="aside" heading="Support">
+        <s-unordered-list>
+          <s-list-item>
+            <s-link href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</s-link>
+          </s-list-item>
+          <s-list-item>
+            <s-link href={FAQ_DOC_PATH} target="_blank">
+              Merchant FAQ
             </s-link>
           </s-list-item>
           <s-list-item>
-            Explore Shopify&apos;s API with{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-              target="_blank"
-            >
-              GraphiQL
+            <s-link href={MERCHANT_APPLICATION_URL} target="_blank">
+              uniple merchant application
             </s-link>
           </s-list-item>
         </s-unordered-list>

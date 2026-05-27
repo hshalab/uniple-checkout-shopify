@@ -1,8 +1,9 @@
 /**
  * uniple webhook receiver (= uniple → Shopify app)。
  *
- * uniple checkout 完了 (= on-chain confirm) で uniple が本 endpoint に POST、
- * plugin が Shopify `orderMarkAsPaid` GraphQL mutation で paid 化。
+ * uniple checkout 完了/期限切れで uniple が本 endpoint に POST。
+ * completed は Shopify `orderMarkAsPaid` GraphQL mutation で paid 化し、 expired は
+ * local OrderMapping のみ expired 化する (= Shopify order は pending 維持)。
  *
  * - HMAC-SHA256 raw body verify (= ShopSettings.webhookSecret)
  * - session_id 照合 (= OrderMapping.unipleSessionId)
@@ -29,6 +30,31 @@ const ORDER_MARK_AS_PAID_MUTATION = `#graphql
   }
 `;
 
+type UnipleWebhookData = {
+  sessionId?: string;
+  session_id?: string;
+  clientReferenceId?: string;
+  client_reference_id?: string;
+  status?: string;
+  txHash?: string;
+  tx_hash?: string;
+  transactionId?: string;
+  transaction_id?: string;
+  payer?: string;
+  payerAddress?: string;
+  payer_address?: string;
+};
+
+type UnipleWebhookPayload = UnipleWebhookData & {
+  event?: string;
+  eventType?: string;
+  eventId?: string;
+  event_id?: string;
+  type?: string;
+  data?: UnipleWebhookData;
+  payload?: UnipleWebhookData;
+};
+
 export const action = async ({ request }: ActionFunctionArgs) => {
   if (request.method !== "POST") {
     return new Response("method-not-allowed", { status: 405 });
@@ -36,30 +62,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const rawBody = await request.text();
   const sigHeader = request.headers.get("X-Uniple-Signature") ?? "";
 
-  let payload: {
-    eventId?: string;
-    type?: string;
-    data?: {
-      sessionId?: string;
-      clientReferenceId?: string;
-      status?: string;
-      txHash?: string;
-      transactionId?: string;
-      payer?: string;
-    };
-  };
+  let payload: UnipleWebhookPayload;
   try {
     payload = JSON.parse(rawBody);
   } catch {
     return jsonResponse(400, { error: "invalid_payload" });
   }
-  const data = payload.data ?? {};
-  const sessionId = String(data.sessionId ?? "");
+  const data = payload.data ?? payload.payload ?? payload;
+  const sessionId = String(data.sessionId ?? data.session_id ?? "");
   if (!sessionId) {
     return jsonResponse(400, { error: "missing_session_id" });
   }
-  const eventId = String(payload.eventId ?? "");
-  const type = String(payload.type ?? "");
+  const eventId = String(payload.eventId ?? payload.event_id ?? "");
+  const type = String(payload.type ?? payload.event ?? payload.eventType ?? "");
   const status = String(data.status ?? "");
 
   const mapping = await db.orderMapping.findUnique({ where: { unipleSessionId: sessionId } });
@@ -88,6 +103,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return jsonResponse(200, { ok: true, duplicate: true });
   }
 
+  if (type === "checkout.session.expired" || status === "expired") {
+    await db.orderMapping.update({
+      where: { id: mapping.id },
+      data: {
+        ...(mapping.status === "pending" ? { status: "expired" } : {}),
+        processedEventIds: appendEventId(processedIds, eventId),
+      },
+    });
+    return jsonResponse(200, {
+      ok: true,
+      expired: mapping.status === "pending",
+      status: mapping.status === "pending" ? "expired" : mapping.status,
+    });
+  }
+
   if (type !== "checkout.session.completed" || status !== "completed") {
     return jsonResponse(200, { ok: true, ignored: true });
   }
@@ -100,8 +130,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return jsonResponse(200, { ok: true, already_paid: true });
   }
 
-  const txHash = String(data.txHash ?? data.transactionId ?? "");
-  const payer = String(data.payer ?? "");
+  const txHash = String(
+    data.txHash ??
+      data.tx_hash ??
+      data.transactionId ??
+      data.transaction_id ??
+      "",
+  );
+  const payer = String(
+    data.payer ?? data.payerAddress ?? data.payer_address ?? "",
+  );
 
   // Shopify offline session で admin GraphQL client 構築
   try {

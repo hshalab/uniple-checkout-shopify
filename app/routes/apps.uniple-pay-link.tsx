@@ -21,6 +21,7 @@ import db from "../db.server";
 import { UnipleClient } from "../lib/uniple-client.server";
 import { extractOrderNumericId, normalizeOrderGid } from "../lib/shopify-gid.server";
 import { toIntegerJpyc } from "../lib/uniple-amount.server";
+import { buildUnipleCheckoutUrl } from "../lib/uniple-checkout-url.server";
 import { setUnipleOrderMetafields } from "../lib/shopify-metafields.server";
 import { unauthenticated } from "../shopify.server";
 
@@ -227,7 +228,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return Response.redirect(`https://${shop}/account/orders/${extractOrderNumericId(orderGid)}`, 302);
   }
 
-  const checkoutUrl = `https://uniple.io/checkout/${mapping.unipleSessionId}`;
+  const settings = await db.shopSettings.findUnique({
+    where: { shop },
+    select: { apiBaseUrl: true },
+  });
+  const checkoutUrl = buildUnipleCheckoutUrl(settings?.apiBaseUrl, mapping.unipleSessionId);
 
   if (wantsJson) {
     return Response.json(

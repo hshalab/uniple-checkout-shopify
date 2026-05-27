@@ -8,8 +8,7 @@
  *   - status=completed なら paid 確定 (= orderMarkAsPaid + processedEventIds 更新)
  *   - webhook 未着 / 遅延時の last-line defense
  *
- * 最後に shop の order status page (= `https://<shop>/account/orders/<numericId>`)
- * へ redirect、 buyer は注文確認画面を見る。
+ * 最後に Shopify order status page へ redirect、 buyer は注文確認画面を見る。
  */
 
 import type { LoaderFunctionArgs } from "react-router";
@@ -26,6 +25,35 @@ const ORDER_MARK_AS_PAID_MUTATION = `#graphql
     }
   }
 `;
+
+const SHOP_ID_QUERY = `#graphql
+  query ShopIdForCustomerAccountUrl {
+    shop {
+      id
+    }
+  }
+`;
+
+function numericIdFromGid(gid: string | undefined | null): string | null {
+  const match = gid?.match(/\/(\d+)$/);
+  return match?.[1] ?? null;
+}
+
+async function buildCustomerAccountOrderUrl(shop: string, orderNumericId: string): Promise<string> {
+  try {
+    const { admin } = await unauthenticated.admin(shop);
+    const res = await admin.graphql(SHOP_ID_QUERY);
+    const json = (await res.json()) as { data?: { shop?: { id?: string } } };
+    const shopNumericId = numericIdFromGid(json.data?.shop?.id);
+    if (shopNumericId) {
+      return `https://shopify.com/${shopNumericId}/account/orders/${encodeURIComponent(orderNumericId)}`;
+    }
+  } catch (e) {
+    console.warn("[uniple] shop id lookup failed:", (e as Error).message);
+  }
+
+  return `https://${shop}/account/orders/${encodeURIComponent(orderNumericId)}`;
+}
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
@@ -115,7 +143,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // 最終遷移先 = Shopify Order の statusPageUrl (= signed token 含む、 customer login 不要)。
   // codex 査読 r80: `/account/orders/<id>` は customer account login を要求する path のため
   // WP plugin の `get_checkout_order_received_url()` 相当として Admin GraphQL の
-  // `Order.statusPageUrl` を採用。 不在 (= permission / network error) なら shop top に fallback。
+  // `Order.statusPageUrl` を採用。 不在 (= permission / network error) なら Customer Account
+  // の order detail URL に fallback し、 shop TOP には落とさない。
   let statusUrl: string | null = null;
   try {
     const { admin } = await unauthenticated.admin(shop);
@@ -134,5 +163,5 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.warn("[uniple] statusPageUrl lookup failed:", (e as Error).message);
   }
 
-  return redirect(statusUrl ?? `https://${shop}/`);
+  return redirect(statusUrl ?? (await buildCustomerAccountOrderUrl(shop, orderNumericId)));
 };

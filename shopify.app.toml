@@ -1,7 +1,9 @@
-# uniple checkout — Shopify app (= JPYC stablecoin Manual Payment + Thank you pay link)
-# Path A: Manual Payment offline gateway + Thank you / Order status UI extension で
-# pay button 表示。 検討した Path B (= Payments App Extension native offsite) は
-# Shopify Plus / Approved Partner 要件 + 審査厳格のため MVP 段階で見送り (= codex 査読 r70)。
+# uniple checkout — Shopify app (= JPYC stablecoin Manual Payment + App Proxy pay link)
+# Email-only design (= 2026-05-26 確定): Manual Payment offline gateway + 注文確認 email
+# Liquid snippet の durable App Proxy pay link で customer 動線完結。
+# UI extension (= Thank you / Order Status block) は 27 deploy + A/B audit で
+# 真因が app-level config の app silent disable と判明したため不採用。
+# Path B (= Payments Apps V2) は PPP 現状 invitation-only で 申請待ち長期 track。
 client_id = "cdf36943d96d6284bdfa212ee9801b45"
 name = "uniple checkout"
 handle = "uniple-checkout"
@@ -58,12 +60,8 @@ api_version = "2025-10"
 [pos]
 embedded = false
 
-# Thank you / Order status UI extension が order metafield に直接 access
-# できない (= appMetafields.target.type に 'order' 無し、 codex r82 査読確定)
-# 制約を回避するため App Proxy を経由。
-# Block の fetch('/apps/uniple-pay-link?orderId=<gid>') が
-# https://uniple-dev.myshopify.com/apps/uniple-pay-link を経由して
-# {app}/apps/uniple-pay-link?... に proxy される。
+# 注文確認 email の Liquid snippet が App Proxy `/apps/uniple-pay-link?orderId=<gid>` を
+# customer click 経由で叩く primary path。
 # Shopify が HMAC `signature` query param を付加、 plugin endpoint で検証。
 [app_proxy]
 url = "https://shopify.uniple.io/apps/uniple-pay-link"

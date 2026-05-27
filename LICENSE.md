@@ -1,7 +1,35 @@
-Copyright 2025-present, Shopify Inc.
+Copyright (C) 2026 uniple inc.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+uniple checkout for Shopify is licensed under the GNU General Public License,
+version 2 or later (GPLv2+), to match the license of the other uniple checkout
+plugins (= WooCommerce / EC-CUBE 4 / EC-CUBE 2).
 
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+
+Full license text: https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+
+---
+
+This codebase was scaffolded from the Shopify React Router app template
+(MIT licensed, https://github.com/Shopify/shopify-app-template-react-router).
+Code subsequently authored or substantially modified by uniple inc. is
+licensed under GPLv2+ as stated above.
+
+Trademarks:
+- "Shopify" and the Shopify logo are registered trademarks of Shopify Inc.
+- "JPYC" and the JPYC logo are registered trademarks of JPYC Inc.
+
+This plugin is an unofficial distribution by uniple inc. and is not officially
+endorsed or warranted by Shopify Inc. or JPYC Inc.
