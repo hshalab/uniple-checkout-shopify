@@ -14,6 +14,7 @@
    - `05-pending-tasks.md` = 残作業と優先順位
    - `06-workflow-rules.md` = D user / codex collaboration rules
    - `07-resume-instructions.md` = 議論再開手順
+   - `08-telegram-notifications.md` = Telegram 通知 setup + usage
 
 ## 引き継ぎ docs の更新方針
 

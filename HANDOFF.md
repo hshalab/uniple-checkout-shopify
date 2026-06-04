@@ -17,6 +17,7 @@
 7. **`docs/handoff/05-pending-tasks.md`** = 残作業と優先順位
 8. **`docs/handoff/06-workflow-rules.md`** = D user / codex / claude の collaboration rules
 9. **`docs/handoff/07-resume-instructions.md`** = 議論を再開する際の手順
+10. **`docs/handoff/08-telegram-notifications.md`** = Telegram 通知 setup + usage (= 作業完了 / ALERT 時に D user に通知)
 
 加えて、 既存 claude memory も併読推奨:
 

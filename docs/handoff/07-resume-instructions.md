@@ -59,6 +59,18 @@ URL: https://dev.shopify.com/dashboard/218108954/apps/362476437505/versions
 
 期待: `enabled: true`、 next run 直近の future date、 過去 run 全部 complete (= silent status または ALERT 履歴)。
 
+### Telegram 通知 setup 確認
+
+```bash
+# .env or relay file に credentials 入っているか確認
+[[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]] && echo "ok" || echo "未設定"
+
+# test 送信
+bin/notify-telegram.sh "codex 引き継ぎ test from $(hostname)" || echo "未設定 = D user に確認"
+```
+
+詳細: `docs/handoff/08-telegram-notifications.md`。 設定漏れなら D user に「Telegram bot 作成して credentials 共有してください」 と確認。
+
 ### community thread 確認 (= 任意)
 
 URL: https://community.shopify.dev/t/customer-account-ui-extension-static-target-not-invoked-for-embedded-app-works-for-extension-only-app-on-same-dev-shop/34643
