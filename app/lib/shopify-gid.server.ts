@@ -35,3 +35,16 @@ export function extractOrderNumericId(input: string | number): string {
   }
   throw new Error(`unrecognized Shopify Order id: ${s}`);
 }
+
+export function extractNumericIdFromGid(input: string | number, resource: string): string {
+  const s = String(input).trim();
+  const prefix = `gid://shopify/${resource}/`;
+  if (s.startsWith(prefix)) {
+    const numeric = s.slice(prefix.length);
+    if (/^\d+$/.test(numeric)) return numeric;
+  }
+  if (/^\d+$/.test(s)) {
+    return s;
+  }
+  throw new Error(`unrecognized Shopify ${resource} id: ${s}`);
+}

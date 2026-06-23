@@ -60,6 +60,18 @@ export interface GetSessionResult {
   httpStatus: number;
 }
 
+export interface ProductSyncItem {
+  externalId: string;
+  name: string;
+  priceJpyc: string;
+  active: boolean;
+  description?: string;
+  imageUrl?: string;
+  pageUrl?: string;
+  taxLabel?: string;
+  sortOrder?: number;
+}
+
 const TIMEOUT_MS = 5000;
 
 export class UnipleApiError extends Error {
@@ -178,6 +190,43 @@ export class UnipleClient {
       ...(data as Omit<GetSessionResult, "httpStatus">),
       httpStatus: response.status,
     };
+  }
+
+  async syncProducts(products: ProductSyncItem[]): Promise<Record<string, unknown>> {
+    if (products.length > 200) {
+      throw new UnipleApiError("products max 200", 400);
+    }
+    if (!this.config.apiKey) {
+      throw new UnipleApiError("uniple_api_key_not_configured", 503);
+    }
+
+    const response = await this.fetchWithTimeout(this.endpoint("/api/merchant/products"), {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${this.config.apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "User-Agent": buildUserAgent(),
+      },
+      body: JSON.stringify({ products }),
+    });
+
+    const raw = await response.text();
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      throw new UnipleApiError("uniple_products_non_json", response.status, raw.slice(0, 300));
+    }
+    if (response.status < 200 || response.status >= 300 || payload.ok === false) {
+      throw new UnipleApiError(
+        `uniple_products_failed: status=${response.status}`,
+        response.status,
+        raw.slice(0, 300),
+      );
+    }
+
+    return { ...payload, httpStatus: response.status };
   }
 
   verifySignature(rawBody: string, sigHeader: string): boolean {

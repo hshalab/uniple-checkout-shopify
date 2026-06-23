@@ -14,9 +14,10 @@ dev_store_url = "uniple-dev.myshopify.com"
 [access_scopes]
 # Manual Payment + orderMarkAsPaid に必要な最小 scope。
 # - read_orders: order detail 取得 (= shop admin 経由 webhook + uniple session 作成時)
-# - write_orders: orderMarkAsPaid mutation (= uniple webhook completed 受信時)
-# write_checkouts は deprecated のため不採用、 read_products は first smoke 後に判断。
-scopes = "read_orders,write_orders"
+# - write_orders: orderMarkAsPaid / orderCreate mutation (= uniple webhook completed 受信時)
+# - read_products: x402商品同期で product variant catalog を読む
+# write_checkouts は deprecated のため不採用。
+scopes = "read_orders,write_orders,read_products"
 
 [auth]
 redirect_urls = [

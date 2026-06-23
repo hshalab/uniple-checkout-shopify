@@ -12,36 +12,36 @@ datasource db {
 
 // Shopify CLI scaffold default = OAuth session
 model Session {
-  id            String    @id
-  shop          String
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime?
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator  Boolean?  @default(false)
-  emailVerified Boolean?  @default(false)
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
 
 // uniple 加盟店設定 (= shop ごと、 secret は app-level encryption key で暗号化推奨)
 model ShopSettings {
-  id              String   @id @default(cuid())
-  shop            String   @unique
-  apiBaseUrl      String   @default("https://uniple.io")
-  apiKey          String   // 暗号化 at rest 推奨 (= sodium secretbox 等)
-  webhookSecret   String   // 同上
-  merchantLabel   String
-  mode            String   @default("live") // live | test
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(cuid())
+  shop          String   @unique
+  apiBaseUrl    String   @default("https://uniple.io")
+  apiKey        String // 暗号化 at rest 推奨 (= sodium secretbox 等)
+  webhookSecret String // 同上
+  merchantLabel String
+  mode          String   @default("live") // live | test
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 // Shopify order ↔ uniple session mapping
@@ -68,6 +68,44 @@ model OrderMapping {
   updatedAt             DateTime @updatedAt
 
   @@unique([shop, shopifyOrderId])
+  @@index([shop])
+  @@index([status])
+}
+
+// x402 productSku ↔ Shopify variant mapping. Synced from Shopify product variants.
+model X402Product {
+  id               String   @id @default(cuid())
+  shop             String
+  externalId       String   @unique
+  shopifyProductId String
+  shopifyVariantId String
+  name             String
+  priceJpyc        String
+  active           Boolean  @default(true)
+  syncedAt         DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([shop])
+}
+
+// x402 webhook idempotency + created Shopify order record.
+model X402Order {
+  id                String   @id @default(cuid())
+  shop              String
+  idempotencyKey    String   @unique
+  productSku        String
+  shopifyOrderId    String?
+  shopifyOrderName  String?
+  amountJpyc        String
+  txHash            String?
+  payer             String?
+  status            String   @default("processing") // processing | created | failed
+  lastError         String?
+  processedEventIds String   @default("[]")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
   @@index([shop])
   @@index([status])
 }

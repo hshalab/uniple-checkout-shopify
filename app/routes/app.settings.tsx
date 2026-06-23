@@ -30,6 +30,8 @@ import {
 import enTranslations from "@shopify/polaris/locales/en.json";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
+import { UnipleClient } from "../lib/uniple-client.server";
+import { syncShopifyX402Products, type ShopifyX402SyncResult } from "../lib/shopify-x402-product-sync.server";
 
 const MASK = "••••••••";
 
@@ -49,6 +51,7 @@ interface LoaderData {
 interface ActionData {
   ok?: boolean;
   error?: string;
+  x402Sync?: Pick<ShopifyX402SyncResult, "synced" | "active" | "inactive" | "skipped">;
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs): Promise<LoaderData> => {
@@ -71,9 +74,42 @@ export const loader = async ({ request }: LoaderFunctionArgs): Promise<LoaderDat
 };
 
 export const action = async ({ request }: ActionFunctionArgs): Promise<ActionData> => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
   const formData = await request.formData();
+  const intent = String(formData.get("intent") ?? "save");
+
+  if (intent === "x402_sync") {
+    const settings = await db.shopSettings.findUnique({ where: { shop } });
+    if (!settings || !settings.apiKey) {
+      return { error: "Merchant API keyを保存してから x402商品同期を実行してください。" };
+    }
+    try {
+      const result = await syncShopifyX402Products(
+        admin,
+        shop,
+        new UnipleClient({
+          apiKey: settings.apiKey,
+          webhookSecret: settings.webhookSecret,
+          merchantLabel: settings.merchantLabel,
+          apiBaseUrl: settings.apiBaseUrl,
+          mode: settings.mode as "live" | "test",
+        }),
+      );
+      return {
+        ok: true,
+        x402Sync: {
+          synced: result.synced,
+          active: result.active,
+          inactive: result.inactive,
+          skipped: result.skipped,
+        },
+      };
+    } catch (e) {
+      return { error: `x402商品同期に失敗しました: ${(e as Error).message}` };
+    }
+  }
+
   const apiBaseUrl = String(formData.get("apiBaseUrl") ?? "https://uniple.io").trim();
   const merchantLabel = String(formData.get("merchantLabel") ?? "").trim();
   const mode = (String(formData.get("mode") ?? "live") === "test" ? "test" : "live") as
@@ -129,12 +165,12 @@ export default function Settings() {
   const [savedFlash, setSavedFlash] = useState(false);
 
   useEffect(() => {
-    if (actionData?.ok) {
+    if (actionData?.ok && !actionData.x402Sync) {
       setSavedFlash(true);
       const timer = setTimeout(() => setSavedFlash(false), 4000);
       return () => clearTimeout(timer);
     }
-  }, [actionData?.ok]);
+  }, [actionData?.ok, actionData?.x402Sync]);
 
   return (
     <PolarisAppProvider i18n={enTranslations}>
@@ -155,9 +191,21 @@ export default function Settings() {
                 </Banner>
               </Box>
             )}
+            {actionData?.x402Sync && (
+              <Box paddingBlockEnd="400">
+                <Banner tone="success" title="x402商品同期">
+                  <p>
+                    x402商品同期を実行しました。同期: {actionData.x402Sync.synced}件 / 有効:{" "}
+                    {actionData.x402Sync.active}件 / 無効: {actionData.x402Sync.inactive}件 /
+                    同期対象外: {actionData.x402Sync.skipped}件
+                  </p>
+                </Banner>
+              </Box>
+            )}
 
             <Card>
               <Form method="post">
+                <input type="hidden" name="intent" value="save" />
                 <FormLayout>
                   <TextField
                     label="API base URL"
@@ -211,6 +259,29 @@ export default function Settings() {
                 </FormLayout>
               </Form>
             </Card>
+            <Box paddingBlockStart="400">
+              <Card>
+                <Form method="post">
+                  <input type="hidden" name="intent" value="x402_sync" />
+                  <BlockStack gap="300">
+                    <Text as="h2" variant="headingMd">
+                      x402 / AI購入 商品同期
+                    </Text>
+                    <Text as="p" tone="subdued">
+                      Shopifyの商品バリエーションをunipleの商品catalogへ同期します。公開中・購入可能なバリエーションは有効として同期されます。
+                    </Text>
+                    <Text as="p" tone="subdued">
+                      通常のHosted Checkout / LINE / WalletConnect決済フローは変更されません。
+                    </Text>
+                    <InlineStack align="end">
+                      <Button submit loading={submitting}>
+                        x402商品同期
+                      </Button>
+                    </InlineStack>
+                  </BlockStack>
+                </Form>
+              </Card>
+            </Box>
           </Layout.Section>
           <Layout.Section variant="oneThird">
             <Card>
