@@ -22,6 +22,14 @@ import type { ActionFunctionArgs } from "react-router";
 import { createHash } from "node:crypto";
 import db from "../db.server";
 import { UnipleClient } from "../lib/uniple-client.server";
+import {
+  compareAmounts,
+  divideAmount,
+  markShopifyX402QuoteUsed,
+  quoteShipping,
+  validateShopifyX402Quote,
+  type ShopifyX402QuoteRecord,
+} from "../lib/shopify-x402-quote.server";
 import { unauthenticated } from "../shopify.server";
 
 const ORDER_MARK_AS_PAID_MUTATION = `#graphql
@@ -255,6 +263,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 type X402ProductRecord = {
   shop: string;
   externalId: string;
+  shopifyProductId: string;
   shopifyVariantId: string;
   name: string;
   priceJpyc: string;
@@ -278,6 +287,32 @@ async function handleX402Completed({
   const amountJpyc = normalizeOrderAmount(data.amountJpyc ?? data.amount_jpyc);
   if (!amountJpyc) {
     return jsonResponse(400, { error: "amount_missing_or_invalid" });
+  }
+  const quoteId = readPayloadString(data, ["quoteId", "quote_id"]);
+  let quote: ShopifyX402QuoteRecord | null = null;
+  let quantity = 1;
+  let productSubtotalJpyc = amountJpyc;
+  let shippingFeeJpyc = "0";
+  let discountJpyc = "0";
+  let totalJpyc = amountJpyc;
+  let addressData: UnipleWebhookData = data;
+  if (quoteId) {
+    const quoteResult = await validateShopifyX402Quote({
+      data: data as Record<string, unknown>,
+      productSku,
+      x402Product,
+      amountJpyc,
+    });
+    if (!quoteResult.ok) {
+      return jsonResponse(400, { error: quoteResult.error });
+    }
+    quote = quoteResult.quote;
+    quantity = quote.quantity;
+    productSubtotalJpyc = quote.productSubtotalJpyc;
+    shippingFeeJpyc = quote.shippingFeeJpyc;
+    discountJpyc = quote.discountJpyc;
+    totalJpyc = quote.totalJpyc;
+    addressData = { ...data, shipping: quoteShipping(quote) };
   }
 
   const sessionId = String(data.sessionId ?? data.session_id ?? "");
@@ -316,7 +351,7 @@ async function handleX402Completed({
           shop: x402Product.shop,
           idempotencyKey,
           productSku,
-          amountJpyc,
+          amountJpyc: totalJpyc,
           txHash: readPayloadString(data, ["txHash", "tx_hash", "transactionId", "transaction_id"]) || null,
           payer: readPayloadString(data, ["payer", "payerAddress", "payer_address", "from"]) || null,
           status: "processing",
@@ -335,8 +370,28 @@ async function handleX402Completed({
   const txHash = readPayloadString(data, ["txHash", "tx_hash", "transactionId", "transaction_id"]);
   const payer = readPayloadString(data, ["payer", "payerAddress", "payer_address", "from"]);
   const itemName = readPayloadString(data, ["itemName", "item_name"]) || x402Product.name;
-  const address = x402MailingAddress(data, payer);
-  const note = x402OrderNote(productSku, merchantOrderId, clientReferenceId, txHash, payer);
+  const address = x402MailingAddress(addressData, payer);
+  const note = x402OrderNote(productSku, merchantOrderId, clientReferenceId, txHash, payer, quoteId, shippingFeeJpyc, totalJpyc);
+  const unitPriceJpyc = divideAmount(productSubtotalJpyc, quantity);
+  if (!unitPriceJpyc) {
+    return jsonResponse(400, { error: "quote_amount_mismatch" });
+  }
+  const lineItems: Array<Record<string, unknown>> = [
+    {
+      variantId: x402Product.shopifyVariantId,
+      quantity,
+      priceSet: { shopMoney: { amount: unitPriceJpyc, currencyCode: "JPY" } },
+      taxable: false,
+    },
+  ];
+  if (compareAmounts(shippingFeeJpyc, "0") > 0) {
+    lineItems.push({
+      title: quote?.shippingRateLabel || "送料",
+      quantity: 1,
+      priceSet: { shopMoney: { amount: shippingFeeJpyc, currencyCode: "JPY" } },
+      taxable: false,
+    });
+  }
 
   try {
     const { admin } = await unauthenticated.admin(x402Product.shop);
@@ -346,19 +401,12 @@ async function handleX402Completed({
           currency: "JPY",
           financialStatus: "PAID",
           email: address.email,
-          lineItems: [
-            {
-              variantId: x402Product.shopifyVariantId,
-              quantity: 1,
-              priceSet: { shopMoney: { amount: amountJpyc, currencyCode: "JPY" } },
-              taxable: false,
-            },
-          ],
+          lineItems,
           transactions: [
             {
               kind: "SALE",
               status: "SUCCESS",
-              amountSet: { shopMoney: { amount: amountJpyc, currencyCode: "JPY" } },
+              amountSet: { shopMoney: { amount: totalJpyc, currencyCode: "JPY" } },
               gateway: "uniple x402",
             },
           ],
@@ -372,6 +420,11 @@ async function handleX402Completed({
             { key: "uniple_client_reference_id", value: clientReferenceId },
             { key: "uniple_item_name", value: itemName },
             { key: "uniple_tx_hash", value: txHash },
+            { key: "uniple_quote_id", value: quoteId },
+            { key: "uniple_product_subtotal_jpyc", value: productSubtotalJpyc },
+            { key: "uniple_shipping_fee_jpyc", value: shippingFeeJpyc },
+            { key: "uniple_discount_jpyc", value: discountJpyc },
+            { key: "uniple_total_jpyc", value: totalJpyc },
           ].filter((attr) => attr.value),
         },
         options: { sendReceipt: false, sendFulfillmentReceipt: false },
@@ -410,6 +463,9 @@ async function handleX402Completed({
         lastError: null,
       },
     });
+    if (quote) {
+      await markShopifyX402QuoteUsed(quote.quoteId);
+    }
 
     return jsonResponse(200, {
       ok: true,
@@ -543,6 +599,7 @@ function x402MailingAddress(data: UnipleWebhookData, payer: string): {
     "zipcode",
     "zip",
   ]);
+  const provinceCode = readPayloadString(shipping, ["provinceCode", "province_code", "stateCode", "state_code"]);
   const email =
     readPayloadString(shipping, ["email", "mail"]) ||
     readPayloadString(data, ["email", "buyerEmail", "buyer_email", "payerEmail", "payer_email"]) ||
@@ -558,6 +615,7 @@ function x402MailingAddress(data: UnipleWebhookData, payer: string): {
       city: truncate(city || "x402", 255),
       zip: truncate(zip || "0000000", 32),
       countryCode: "JP",
+      ...(provinceCode ? { provinceCode: truncate(provinceCode, 32) } : {}),
       phone: truncate(phone || "0000000000", 32),
     },
   };
@@ -577,12 +635,18 @@ function x402OrderNote(
   clientReferenceId: string,
   txHash: string,
   payer: string,
+  quoteId = "",
+  shippingFeeJpyc = "",
+  totalJpyc = "",
 ): string {
   const lines = ["uniple x402 purchase", `productSku: ${productSku}`];
+  if (quoteId) lines.push(`quoteId: ${quoteId}`);
   if (merchantOrderId) lines.push(`merchantOrderId: ${merchantOrderId}`);
   if (clientReferenceId) lines.push(`clientReferenceId: ${clientReferenceId}`);
   if (txHash) lines.push(`txHash: ${txHash}`);
   if (payer) lines.push(`payer: ${payer}`);
+  if (shippingFeeJpyc) lines.push(`shippingFeeJpyc: ${shippingFeeJpyc}`);
+  if (totalJpyc) lines.push(`totalJpyc: ${totalJpyc}`);
   return truncate(lines.join("\n"), 4000);
 }
 

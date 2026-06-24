@@ -10,6 +10,18 @@ const dbMock = vi.hoisted(() => ({
     findUnique: vi.fn(),
     update: vi.fn(),
   },
+  x402Product: {
+    findUnique: vi.fn(),
+  },
+  x402Order: {
+    findUnique: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+  },
+  x402Quote: {
+    findUnique: vi.fn(),
+    update: vi.fn(),
+  },
   shopSettings: {
     findUnique: vi.fn(),
   },
@@ -68,10 +80,63 @@ function makeSettings() {
   };
 }
 
+function makeX402Product() {
+  return {
+    shop: "demo.myshopify.com",
+    externalId: "shopify-product-1-variant-2",
+    shopifyProductId: "gid://shopify/Product/1",
+    shopifyVariantId: "gid://shopify/ProductVariant/2",
+    name: "50 JPYC product",
+    priceJpyc: "55",
+    active: true,
+  };
+}
+
+function makeX402Quote(overrides: Record<string, unknown> = {}) {
+  return {
+    quoteId: "uq_test_quote",
+    shop: "demo.myshopify.com",
+    productSku: "shopify-product-1-variant-2",
+    shopifyProductId: "gid://shopify/Product/1",
+    shopifyVariantId: "gid://shopify/ProductVariant/2",
+    quantity: 1,
+    productSubtotalJpyc: "55",
+    shippingFeeJpyc: "150",
+    discountJpyc: "0",
+    totalJpyc: "205",
+    shippingJson: JSON.stringify({
+      name: "鈴木 実",
+      firstName: "実",
+      lastName: "鈴木",
+      email: "buyer@example.test",
+      phone: "0312345678",
+      postalCode: "1000001",
+      prefecture: "東京都",
+      provinceCode: "JP-13",
+      city: "千代田区",
+      address1: "千代田区 千代田1-1",
+      address2: "テストビル101",
+      country: "JP",
+    }),
+    shippingRateId: "shopify_x402_shipping",
+    shippingRateLabel: "送料",
+    quoteSource: "shopify",
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    usedAt: null,
+    ...overrides,
+  };
+}
+
 describe("webhooks.uniple action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMock.shopSettings.findUnique.mockResolvedValue(makeSettings());
+    dbMock.x402Product.findUnique.mockResolvedValue(null);
+    dbMock.x402Order.findUnique.mockResolvedValue(null);
+    dbMock.x402Order.create.mockResolvedValue({});
+    dbMock.x402Order.update.mockResolvedValue({});
+    dbMock.x402Quote.findUnique.mockResolvedValue(null);
+    dbMock.x402Quote.update.mockResolvedValue({});
   });
 
   it("marks a pending mapping expired and returns 200 without touching Shopify", async () => {
@@ -176,6 +241,89 @@ describe("webhooks.uniple action", () => {
         payer: "0xpayer",
         processedEventIds: JSON.stringify(["evt_completed_1"]),
       },
+    });
+  });
+
+  it("creates a Shopify x402 order from a validated shipping quote", async () => {
+    dbMock.orderMapping.findUnique.mockResolvedValue(null);
+    dbMock.x402Product.findUnique.mockResolvedValue(makeX402Product());
+    dbMock.x402Quote.findUnique.mockResolvedValue(makeX402Quote());
+    unauthenticatedAdminMock.mockResolvedValue({
+      admin: { graphql: adminGraphqlMock },
+    });
+    adminGraphqlMock.mockResolvedValue({
+      json: async () => ({
+        data: {
+          orderCreate: {
+            userErrors: [],
+            order: { id: "gid://shopify/Order/100", name: "#100" },
+          },
+        },
+      }),
+    });
+
+    const response = await action({
+      request: makeRequest({
+        eventId: "evt_x402_quote",
+        type: "checkout.session.completed",
+        data: {
+          productSku: "shopify-product-1-variant-2",
+          quoteId: "uq_test_quote",
+          quantity: 1,
+          amountJpyc: "205",
+          productSubtotalJpyc: "55",
+          shippingFeeJpyc: "150",
+          totalJpyc: "205",
+          merchantOrderId: "x402-shopify-quote-test",
+          txHash: "0xabc",
+          payer: "0xpayer",
+        },
+      }),
+    } as never);
+
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      x402: true,
+      orderId: "gid://shopify/Order/100",
+      orderName: "#100",
+    });
+    expect(response.status).toBe(200);
+    expect(adminGraphqlMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        variables: expect.objectContaining({
+          order: expect.objectContaining({
+            email: "buyer@example.test",
+            lineItems: [
+              expect.objectContaining({
+                variantId: "gid://shopify/ProductVariant/2",
+                quantity: 1,
+                priceSet: { shopMoney: { amount: "55", currencyCode: "JPY" } },
+              }),
+              expect.objectContaining({
+                title: "送料",
+                quantity: 1,
+                priceSet: { shopMoney: { amount: "150", currencyCode: "JPY" } },
+              }),
+            ],
+            transactions: [
+              expect.objectContaining({
+                amountSet: { shopMoney: { amount: "205", currencyCode: "JPY" } },
+              }),
+            ],
+            customAttributes: expect.arrayContaining([
+              { key: "uniple_quote_id", value: "uq_test_quote" },
+              { key: "uniple_product_subtotal_jpyc", value: "55" },
+              { key: "uniple_shipping_fee_jpyc", value: "150" },
+              { key: "uniple_total_jpyc", value: "205" },
+            ]),
+          }),
+        }),
+      }),
+    );
+    expect(dbMock.x402Quote.update).toHaveBeenCalledWith({
+      where: { quoteId: "uq_test_quote" },
+      data: { usedAt: expect.any(Date) },
     });
   });
 });
