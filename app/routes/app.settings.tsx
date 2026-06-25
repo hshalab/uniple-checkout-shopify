@@ -228,6 +228,12 @@ export default function Settings() {
   const [apiKey, setApiKey] = useState(settings.apiKey);
   const [webhookSecret, setWebhookSecret] = useState(settings.webhookSecret);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [x402AiEnabled, setX402AiEnabled] = useState<Set<string>>(
+    () => new Set(x402Products.filter((product) => product.aiEnabled).map((product) => product.externalId)),
+  );
+  const x402ProductStateKey = x402Products
+    .map((product) => `${product.externalId}:${product.aiEnabled ? "1" : "0"}`)
+    .join("|");
 
   useEffect(() => {
     if (actionData?.ok && !actionData.x402Sync) {
@@ -236,6 +242,32 @@ export default function Settings() {
       return () => clearTimeout(timer);
     }
   }, [actionData?.ok, actionData?.x402Sync]);
+
+  useEffect(() => {
+    setX402AiEnabled(
+      new Set(x402Products.filter((product) => product.aiEnabled).map((product) => product.externalId)),
+    );
+  }, [x402ProductStateKey]);
+
+  const setAllX402Products = (enabled: boolean) => {
+    setX402AiEnabled(enabled ? new Set(x402Products.map((product) => product.externalId)) : new Set());
+  };
+
+  const setActiveX402Products = () => {
+    setX402AiEnabled(new Set(x402Products.filter((product) => product.active).map((product) => product.externalId)));
+  };
+
+  const toggleX402Product = (externalId: string, enabled: boolean) => {
+    setX402AiEnabled((current) => {
+      const next = new Set(current);
+      if (enabled) {
+        next.add(externalId);
+      } else {
+        next.delete(externalId);
+      }
+      return next;
+    });
+  };
 
   return (
     <PolarisAppProvider i18n={enTranslations}>
@@ -331,6 +363,11 @@ export default function Settings() {
 	                        <Text as="h2" variant="headingSm">
 	                          AI購入対象
 	                        </Text>
+	                        <InlineStack gap="200">
+	                          <Button onClick={() => setAllX402Products(true)}>全て選択</Button>
+	                          <Button onClick={() => setAllX402Products(false)}>全て解除</Button>
+	                          <Button onClick={setActiveX402Products}>同期済みで有効な商品だけ選択</Button>
+	                        </InlineStack>
 	                        <div style={{ overflowX: "auto" }}>
 	                          <table style={{ width: "100%", borderCollapse: "collapse" }}>
 	                            <thead>
@@ -349,7 +386,8 @@ export default function Settings() {
 	                                      type="checkbox"
 	                                      name="x402AiEnabled"
 	                                      value={product.externalId}
-	                                      defaultChecked={product.aiEnabled}
+	                                      checked={x402AiEnabled.has(product.externalId)}
+	                                      onChange={(event) => toggleX402Product(product.externalId, event.currentTarget.checked)}
 	                                    />
 	                                  </td>
 	                                  <td style={{ padding: "8px", borderTop: "1px solid #e3e3e3" }}>
