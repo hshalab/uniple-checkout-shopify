@@ -294,6 +294,16 @@ describe("webhooks.uniple action", () => {
         variables: expect.objectContaining({
           order: expect.objectContaining({
             email: "buyer@example.test",
+            shippingAddress: expect.objectContaining({
+              city: "千代田区",
+              address1: "千代田1-1",
+              address2: "テストビル101",
+            }),
+            billingAddress: expect.objectContaining({
+              city: "千代田区",
+              address1: "千代田1-1",
+              address2: "テストビル101",
+            }),
             lineItems: [
               expect.objectContaining({
                 variantId: "gid://shopify/ProductVariant/2",

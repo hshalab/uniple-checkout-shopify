@@ -3,6 +3,7 @@
 
 import { randomBytes } from "node:crypto";
 import db from "../db.server";
+import { normalizeJapaneseAddressLines } from "./jp-address.server";
 
 const QUOTE_TTL_SECONDS = 15 * 60;
 const SCALE = 1_000_000n;
@@ -292,6 +293,8 @@ function normalizeShipping(shipping: Record<string, unknown>): Record<string, st
     throw new QuoteInputError("shipping_required_field_missing");
   }
 
+  const address = normalizeJapaneseAddressLines({ prefecture, city, address1, address2 });
+
   return {
     name: truncate(`${lastName} ${firstName}`.trim(), 255),
     firstName: truncate(firstName, 255),
@@ -301,9 +304,9 @@ function normalizeShipping(shipping: Record<string, unknown>): Record<string, st
     postalCode: truncate(postalCode, 32),
     prefecture: truncate(prefecture, 255),
     provinceCode: truncate(toShopifyProvinceCode(prefecture), 32),
-    city: truncate(city, 255),
-    address1: truncate(`${city} ${address1}`.trim(), 255),
-    address2: truncate(address2, 255),
+    city: truncate(address.city, 255),
+    address1: truncate(address.address1, 255),
+    address2: truncate(address.address2, 255),
     country: "JP",
   };
 }

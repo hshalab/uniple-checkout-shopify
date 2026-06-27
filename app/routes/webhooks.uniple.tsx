@@ -21,6 +21,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { createHash } from "node:crypto";
 import db from "../db.server";
+import { normalizeJapaneseAddressLines } from "../lib/jp-address.server";
 import { UnipleClient } from "../lib/uniple-client.server";
 import {
   compareAmounts,
@@ -599,7 +600,9 @@ function x402MailingAddress(data: UnipleWebhookData, payer: string): {
     "zipcode",
     "zip",
   ]);
+  const province = readPayloadString(shipping, ["prefecture", "pref", "prefName", "pref_name", "state", "province", "region"]);
   const provinceCode = readPayloadString(shipping, ["provinceCode", "province_code", "stateCode", "state_code"]);
+  const address = normalizeJapaneseAddressLines({ prefecture: province, city, address1, address2 });
   const email =
     readPayloadString(shipping, ["email", "mail"]) ||
     readPayloadString(data, ["email", "buyerEmail", "buyer_email", "payerEmail", "payer_email"]) ||
@@ -610,9 +613,9 @@ function x402MailingAddress(data: UnipleWebhookData, payer: string): {
     mailingAddress: {
       firstName: truncate(firstName, 255),
       lastName: truncate(lastName, 255),
-      address1: truncate(`${city} ${address1}`.trim() || "x402", 255),
-      address2: truncate(address2 || "AI purchase", 255),
-      city: truncate(city || "x402", 255),
+      address1: truncate(address.address1 || "x402", 255),
+      address2: truncate(address.address2, 255),
+      city: truncate(address.city || "x402", 255),
       zip: truncate(zip || "0000000", 32),
       countryCode: "JP",
       ...(provinceCode ? { provinceCode: truncate(provinceCode, 32) } : {}),
